@@ -83,6 +83,7 @@ def aggregate_csv_files(
     *,
     interval_seconds: int = 60,
     delimiter: str = ",",
+    fill_gaps: bool = False,
 ) -> list[Candle]:
     trades = (trade for path in paths for trade in iter_csv_trades(path, mapping, delimiter=delimiter))
-    return list(aggregate_trades(trades, interval_seconds=interval_seconds))
+    return list(aggregate_trades(trades, interval_seconds=interval_seconds, fill_gaps=fill_gaps))

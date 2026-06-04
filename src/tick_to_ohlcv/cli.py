@@ -1,43 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import csv
-import sys
 from pathlib import Path
-from typing import Iterable
 
-from .core import Candle
 from .csv_adapter import CsvTradeMapping, aggregate_csv_files
-
-
-FIELDS = [
-    "symbol",
-    "ts",
-    "datetime",
-    "open",
-    "high",
-    "low",
-    "close",
-    "volume",
-    "turnover",
-    "trade_count",
-    "buy_volume",
-    "sell_volume",
-    "first_trade_ts_ms",
-    "last_trade_ts_ms",
-]
-
-
-def _write_csv(candles: Iterable[Candle], output: Path | None) -> None:
-    handle = output.open("w", encoding="utf-8", newline="") if output else sys.stdout
-    try:
-        writer = csv.DictWriter(handle, fieldnames=FIELDS)
-        writer.writeheader()
-        for candle in candles:
-            writer.writerow(candle.to_dict())
-    finally:
-        if output:
-            handle.close()
+from .discovery import discover_files
+from .intervals import parse_interval_seconds
+from .writers import write_candles
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -45,7 +14,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     sub = parser.add_subparsers(dest="source", required=True)
 
     csv_parser = sub.add_parser("csv", help="Convert CSV trade files using explicit column mappings")
-    csv_parser.add_argument("paths", nargs="+", type=Path)
+    csv_parser.add_argument("paths", nargs="*", type=Path)
+    csv_parser.add_argument("--input-root", type=Path, help="Discover input files under this directory")
+    csv_parser.add_argument(
+        "--include",
+        action="append",
+        help="Glob pattern relative to --input-root; can be passed multiple times",
+    )
+    csv_parser.add_argument(
+        "--exclude",
+        action="append",
+        help="Glob pattern relative to --input-root to skip; can be passed multiple times",
+    )
     csv_parser.add_argument("--timestamp-column", required=True)
     csv_parser.add_argument("--timestamp-unit", default="ms", choices=["ms", "s"])
     csv_parser.add_argument("--price-column", required=True)
@@ -56,8 +36,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     csv_parser.add_argument("--side-column")
     csv_parser.add_argument("--trade-id-column")
     csv_parser.add_argument("--delimiter", default=",")
-    csv_parser.add_argument("--interval-seconds", type=int, default=60)
-    csv_parser.add_argument("--output", type=Path, help="CSV output path; defaults to stdout")
+    csv_parser.add_argument("--interval", default="1m", help="Candle interval such as 60, 1m, 5m, 1h, or 1d")
+    csv_parser.add_argument("--interval-seconds", type=int, help="Deprecated alias for second-based intervals")
+    csv_parser.add_argument("--fill-gaps", action="store_true", help="Emit zero-volume flat candles for empty intervals")
+    csv_parser.add_argument("--output-format", choices=["csv", "parquet"], help="Defaults to output extension or csv")
+    csv_parser.add_argument("--output", type=Path, help="Output path; CSV defaults to stdout")
     return parser.parse_args(argv)
 
 
@@ -66,6 +49,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.source == "csv":
         if not args.symbol and not args.symbol_column:
             raise ValueError("CSV input requires --symbol or --symbol-column")
+        paths = discover_files(
+            paths=args.paths,
+            input_root=args.input_root,
+            include_patterns=args.include,
+            exclude_patterns=args.exclude,
+        )
+        if not paths:
+            raise ValueError("CSV input requires at least one input file")
         mapping = CsvTradeMapping(
             timestamp_column=args.timestamp_column,
             timestamp_unit=args.timestamp_unit,
@@ -77,15 +68,17 @@ def main(argv: list[str] | None = None) -> int:
             side_column=args.side_column,
             trade_id_column=args.trade_id_column,
         )
+        interval_seconds = args.interval_seconds or parse_interval_seconds(args.interval)
         candles = aggregate_csv_files(
-            args.paths,
+            paths,
             mapping,
-            interval_seconds=args.interval_seconds,
+            interval_seconds=interval_seconds,
             delimiter=args.delimiter,
+            fill_gaps=args.fill_gaps,
         )
     else:
         raise ValueError(f"Unsupported source: {args.source}")
-    _write_csv(candles, args.output)
+    write_candles(candles, output=args.output, output_format=args.output_format)
     return 0
 
 
