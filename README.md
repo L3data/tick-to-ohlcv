@@ -2,9 +2,18 @@
 
 Generic utility for converting raw market trade ticks into structured OHLCV candles.
 
+The primary implementation is a Rust crate and CLI. The Python package remains
+available as a compatibility layer for existing integrations.
+
 Current adapters:
 
 - Explicitly mapped CSV trade files
+
+Build the Rust CLI:
+
+```bash
+cargo build --release
+```
 
 Install with optional Parquet support:
 
@@ -30,7 +39,7 @@ Discover many files under a root, emit flat zero-volume gap candles, and write
 Parquet:
 
 ```bash
-tick-to-ohlcv csv \
+cargo run --release -- csv \
   --input-root /data/raw-trades \
   --include "**/*.csv" \
   --exclude "**/bad/*.csv" \
@@ -45,6 +54,9 @@ tick-to-ohlcv csv \
   --output-format parquet \
   --output /data/candles.parquet
 ```
+
+The installed Python entrypoint accepts the same command shape for CSV output
+and optional PyArrow-backed Parquet output.
 
 Output candles use second-based interval start timestamps and include:
 
