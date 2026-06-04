@@ -94,11 +94,13 @@ def aggregate_trades(
     *,
     interval_seconds: int = 60,
     sort: bool = True,
+    fill_gaps: bool = False,
 ) -> Iterator[Candle]:
     """Aggregate trades into candles grouped by symbol and interval.
 
     Candles are emitted in `(symbol, ts)` order. Empty intervals are not filled;
-    the framework intentionally leaves gap filling to a downstream policy layer.
+    when `fill_gaps` is enabled, missing intervals between observed candles are
+    emitted as zero-volume flat candles using the previous close.
     """
 
     ordered = sorted(trades, key=_trade_sort_key) if sort else list(trades)
@@ -135,5 +137,26 @@ def aggregate_trades(
         else:
             candle.add(trade)
 
-    for key in sorted(candles):
-        yield candles[key]
+    if not fill_gaps:
+        for key in sorted(candles):
+            yield candles[key]
+        return
+
+    previous_by_symbol: dict[str, Candle] = {}
+    for symbol, ts in sorted(candles):
+        current = candles[(symbol, ts)]
+        previous = previous_by_symbol.get(symbol)
+        if previous is not None:
+            gap_ts = previous.ts + interval_seconds
+            while gap_ts < current.ts:
+                yield Candle(
+                    symbol=symbol,
+                    ts=gap_ts,
+                    open=previous.close,
+                    high=previous.close,
+                    low=previous.close,
+                    close=previous.close,
+                )
+                gap_ts += interval_seconds
+        yield current
+        previous_by_symbol[symbol] = current
