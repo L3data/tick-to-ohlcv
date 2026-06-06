@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "Convert raw market trade ticks into OHLCV candles."
 license = "MIT"
+keywords = ["ohlcv", "trading", "market-data", "parquet", "csv"]
+categories = ["command-line-utilities", "finance"]
+readme = "README.md"
 
 [dependencies]
 arrow-array = "54.3.1"
